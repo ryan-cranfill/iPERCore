@@ -14,6 +14,11 @@ MMCV_DIST = "https://download.openmmlab.com/mmcv/dist/index.html"
 PIP_VERSION = "20.2.4"
 
 PRECOMPILED_TORCH_CUDA_PAIRS = {
+    "1.7.0+cu112": {
+        "torch": "1.7.0+cu110",
+        "torchvision": "0.8.1+cu110",
+        "mmcv-full": "1.2.0+torch1.7.0+cu110"
+    },
     "1.7.0+cu110": {
         "torch": "1.7.0+cu110",
         "torchvision": "0.8.1+cu110",
@@ -65,6 +70,24 @@ WINDOWS_PRECOMPILED_TORCH_CUDA_PAIRS = {
 }
 
 
+def get_cuda_version_from_nvidia_smi() -> float:
+    which_sp = subprocess.Popen(['which', 'nvidia-smi'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    nvidia_smi_location = which_sp.communicate()[0]
+    print('nvidia-smi location:', nvidia_smi_location)
+    nvidia_smi_location = nvidia_smi_location.decode().replace('\n', '')
+    if not nvidia_smi_location:
+        raise FileNotFoundError
+
+    sp = subprocess.Popen([nvidia_smi_location, '-q'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    out_str = sp.communicate()[0].decode()
+    match = re.search(r'CUDA Version \W*:\W*(.*)\n', out_str)
+    if match:
+        return float(match.groups()[0])
+
+    raise ValueError
+
+
 def get_cuda_version() -> float:
     """
         Get the cuda version of the system, make sure that the $CUDA_HOME or the $CUDA_PATH has been added into the system path.
@@ -74,27 +97,30 @@ def get_cuda_version() -> float:
 
     """
 
-    # In windows, the cuda_install.exe will set the `CUDA_PATH` to the system environmental variables.
-    if "CUDA_HOME" not in os.environ and "CUDA_PATH" in os.environ:
-        os.environ["CUDA_HOME"] = os.environ["CUDA_PATH"]
+    try:
+        version = get_cuda_version_from_nvidia_smi()
+    except ValueError or FileNotFoundError:
+        # In windows, the cuda_install.exe will set the `CUDA_PATH` to the system environmental variables.
+        if "CUDA_HOME" not in os.environ and "CUDA_PATH" in os.environ:
+            os.environ["CUDA_HOME"] = os.environ["CUDA_PATH"]
 
-    assert "CUDA_HOME" in os.environ, r"Cannot find the $CUDA_HOME in the environments. Please manually install the " \
-                                      r"CUDA >= 10.1, and set the $CUDA_HOME environment variable."
+        assert "CUDA_HOME" in os.environ, r"Cannot find the $CUDA_HOME in the environments. Please manually install the " \
+                                          r"CUDA >= 10.1, and set the $CUDA_HOME environment variable."
 
-    # e.g. "CUDA Version 10.1.243", "CUDA Version 10.0.130"
-    cuda_version_file = os.path.join(os.environ["CUDA_HOME"], "version.txt")
+        # e.g. "CUDA Version 10.1.243", "CUDA Version 10.0.130"
+        cuda_version_file = os.path.join(os.environ["CUDA_HOME"], "version.txt")
 
-    if not os.path.exists(cuda_version_file):
-        raise FileNotFoundError(f"Cannot read cuda version file {cuda_version_file}")
+        if not os.path.exists(cuda_version_file):
+            raise FileNotFoundError(f"Cannot read cuda version file {cuda_version_file}")
 
-    with open(cuda_version_file) as f:
-        version_str = f.readline().replace("\n", "").replace("\r", "")
+        with open(cuda_version_file) as f:
+            version_str = f.readline().replace("\n", "").replace("\r", "")
 
-    # "CUDA Version 10.1.243" -> ["CUDA", "Version", "10.1.243"] -> "10.1.243"
-    version = version_str.split(" ")[2]
+        # "CUDA Version 10.1.243" -> ["CUDA", "Version", "10.1.243"] -> "10.1.243"
+        version = version_str.split(" ")[2]
 
-    # "10.1.243" -> "10.1" -> 10.1
-    version = float(".".join(version.split(".")[0:2]))
+        # "10.1.243" -> "10.1" -> 10.1
+        version = float(".".join(version.split(".")[0:2]))
 
     assert version >= 10.1, f"CUDA Version {version} <= 10.1. Please manually install the CUDA >= 10.1"
 
